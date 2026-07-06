@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oracle Exadata Ecosystem Map</title>
+<style>
+  :root{
+    --bg:#f7f8f6;
+    --grid:#eceee9;
+    --ink:#2b3a34;
+    --ink-soft:#6a7b72;
+    --supply:#2e8b6f;      /* green — supply / infra side */
+    --supply-bg:#f2f9f6;
+    --demand:#c98a2b;      /* amber — demand / adoption side */
+    --demand-bg:#fdf8ef;
+    --risk:#c0473f;        /* red — bottlenecks / pain */
+    --risk-bg:#fcf3f2;
+    --outcome:#5b7fa6;     /* blue — outcome pills */
+    --outcome-bg:#eef3f9;
+    --core:#3f6f5e;
+    --core-bg:#eef5f1;
+    --edge:#b9c4bd;
+    --panel:#ffffff;
+    --panel-line:#e3e7e2;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  html,body{margin:0;height:100%;overflow:hidden;font-family:ui-sans-serif,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  #stage{position:fixed;inset:0;cursor:grab;background-color:var(--bg);
+    background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:26px 26px}
+  #stage.panning{cursor:grabbing}
+  #world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+  svg#edges{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
+
+  /* clusters */
+  .cluster{position:absolute;border:1.4px dashed var(--edge);border-radius:14px;background:rgba(255,255,255,0.35)}
+  .cluster > .cl-title{position:absolute;top:-9px;left:16px;background:var(--bg);padding:0 8px;
+    font-size:10.5px;font-weight:700;letter-spacing:.09em;color:var(--ink-soft);text-transform:uppercase}
+  .cluster.supply{border-color:#bfe0d1}
+  .cluster.demand{border-color:#ead6ac}
+  .cluster.risk{border-color:#eabcb7}
+  .cluster.core{border-color:#aecebe;background:rgba(238,245,241,0.55)}
+
+  /* nodes */
+  .node{position:absolute;min-width:118px;max-width:172px;background:var(--panel);
+    border:1.4px solid var(--supply);border-radius:9px;padding:7px 9px 8px;cursor:grab;
+    box-shadow:0 1px 2px rgba(30,50,40,.05);transition:box-shadow .12s,opacity .12s,filter .12s}
+  .node:hover{box-shadow:0 4px 12px rgba(30,50,40,.13);z-index:5}
+  .node.dragging{cursor:grabbing;box-shadow:0 8px 22px rgba(30,50,40,.2);z-index:20}
+  .node .t{font-size:11.5px;font-weight:700;line-height:1.18;color:var(--ink);overflow-wrap:anywhere}
+  .node .c{font-size:9px;line-height:1.28;color:var(--ink-soft);margin-top:2px;letter-spacing:.01em;overflow-wrap:anywhere}
+  .node.demand{border-color:var(--demand)}
+  .node.risk{border-color:var(--risk)}
+  .node.risk .t{color:#9c352f}
+  .node.core{border-color:var(--core);background:var(--core-bg)}
+  .node.outcome{border-color:var(--outcome);background:var(--outcome-bg);border-radius:999px;
+    min-width:auto;text-align:center;padding:9px 16px}
+  .node.outcome .t{color:#3f6386;font-size:11px}
+  .node.ally{border-style:double;border-width:2.4px}
+  .node.dimmed{opacity:.13;filter:grayscale(.5)}
+  .node.fade{opacity:.3;filter:grayscale(.35)}
+  .node .apple{position:absolute;top:-7px;right:-7px;width:15px;height:15px;border-radius:50%;
+    background:#111;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;
+    border:1.5px solid #fff}
+
+  /* edges */
+  path.edge{fill:none;stroke:var(--edge);stroke-width:1.3;opacity:0;transition:opacity .15s,stroke .15s,stroke-width .15s}
+  path.edge.show{opacity:1;stroke-width:2.1}
+  path.edge.faint{opacity:.4;stroke-width:1.4}
+  .elabel{position:absolute;font-size:8.5px;font-weight:600;color:#8794a3;background:rgba(247,248,246,.86);
+    padding:0 3px;border-radius:3px;pointer-events:none;white-space:nowrap;transition:opacity .15s;letter-spacing:.02em;opacity:0}
+  .elabel.show{opacity:1}
+
+  /* ---- UI chrome ---- */
+  #topbar{position:fixed;top:0;left:0;right:0;height:52px;display:flex;align-items:center;gap:14px;
+    padding:0 18px;background:linear-gradient(180deg,rgba(247,248,246,.97),rgba(247,248,246,.82));
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--panel-line);z-index:100}
+  #topbar h1{font-size:13px;font-weight:800;margin:0;letter-spacing:.01em;color:var(--ink)}
+  #topbar h1 span{color:var(--demand)}
+  #topbar .sub{font-size:10.5px;color:var(--ink-soft);margin-left:2px}
+  #topbar .spacer{flex:1}
+  .btn{font-size:11px;font-weight:600;color:var(--ink);background:var(--panel);border:1px solid var(--panel-line);
+    padding:6px 11px;border-radius:7px;cursor:pointer;transition:background .12s,border-color .12s}
+  .btn:hover{background:#f0f2ee;border-color:#d3d9d2}
+  .btn.accent{background:var(--core);color:#fff;border-color:var(--core)}
+  .btn.accent:hover{background:#345c4d}
+
+  /* legend / filter panel */
+  #panel{position:fixed;top:64px;left:14px;width:246px;background:var(--panel);border:1px solid var(--panel-line);
+    border-radius:12px;padding:13px 14px 15px;z-index:90;box-shadow:0 6px 24px rgba(30,50,40,.09);max-height:calc(100vh - 84px);overflow:auto}
+  #panel h2{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+  #panel h2:not(:first-child){margin-top:15px}
+  .rel{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:7px;cursor:pointer;user-select:none;transition:background .1s}
+  .rel:hover{background:#f4f6f2}
+  .rel.off{opacity:.4}
+  .rel .sw{width:22px;height:0;border-top-width:2.4px;border-top-style:solid;flex:none;border-radius:2px}
+  .rel .nm{font-size:10.5px;font-weight:600;color:var(--ink)}
+  .rel .ds{font-size:8.5px;color:var(--ink-soft);display:block;margin-top:1px;font-weight:400}
+  .rel .txt{line-height:1.15}
+  .legend-row{display:flex;align-items:center;gap:7px;margin:4px 0;font-size:10px;color:var(--ink-soft)}
+  .legend-row .box{width:13px;height:13px;border-radius:4px;border-width:1.6px;border-style:solid;flex:none}
+  .legend-row .box.pill{border-radius:999px;width:18px}
+  .legend-row .box.dbl{border-style:double;border-width:2.6px}
+  .panel-note{font-size:9px;color:var(--ink-soft);line-height:1.4;margin-top:6px;padding-top:8px;border-top:1px solid var(--panel-line)}
+  .mini-btns{display:flex;gap:6px;margin-top:8px}
+  .mini-btns .btn{flex:1;text-align:center;padding:5px 0}
+
+  /* zoom controls */
+  #zoom{position:fixed;bottom:18px;right:18px;display:flex;flex-direction:column;gap:6px;z-index:90}
+  #zoom .btn{width:36px;height:34px;font-size:16px;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,50,40,.1)}
+  #hint{position:fixed;bottom:18px;left:14px;font-size:9.5px;color:var(--ink-soft);z-index:80;
+    background:rgba(247,248,246,.8);padding:6px 10px;border-radius:7px;max-width:340px;line-height:1.45}
+  #hint b{color:var(--ink)}
+
+  /* inline editor */
+  #editor{position:fixed;background:var(--panel);border:1px solid var(--panel-line);border-radius:10px;
+    padding:11px;z-index:200;box-shadow:0 10px 30px rgba(30,50,40,.18);width:230px;display:none}
+  #editor label{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:3px}
+  #editor input,#editor select{width:100%;font-size:11px;padding:5px 7px;border:1px solid var(--panel-line);
+    border-radius:6px;margin-bottom:8px;font-family:inherit;color:var(--ink)}
+  #editor .row{display:flex;gap:6px}
+  #editor .row .btn{flex:1;text-align:center}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="world">
+    <svg id="edges"></svg>
+    <!-- clusters + nodes injected here -->
+  </div>
+</div>
+
+<div id="topbar">
+  <h1>Oracle Exadata Ecosystem</h1>
+  <span class="sub">supply → platform core → commercial → adoption</span>
+  <div class="spacer"></div>
+  <button class="btn" id="addNode">+ Add node</button>
+  <button class="btn" id="resetView">Reset view</button>
+  <button class="btn accent" id="fitAll">Fit to screen</button>
+</div>
+
+<div id="panel">
+  <h2>Relationship filter</h2>
+  <div id="relList"></div>
+  <div class="mini-btns">
+    <button class="btn" id="allOn">All</button>
+    <button class="btn" id="allOff">None</button>
+  </div>
+
+  <h2>Node legend</h2>
+  <div class="legend-row"><span class="box" style="border-color:var(--supply);background:var(--supply-bg)"></span> Supply / infrastructure side</div>
+  <div class="legend-row"><span class="box" style="border-color:var(--demand);background:var(--demand-bg)"></span> Demand / channel / adoption</div>
+  <div class="legend-row"><span class="box core" style="border-color:var(--core);background:var(--core-bg)"></span> Oracle platform core</div>
+  <div class="legend-row"><span class="box" style="border-color:var(--risk);background:var(--risk-bg)"></span> Customer pain / bottleneck</div>
+  <div class="legend-row"><span class="box pill" style="border-color:var(--outcome);background:var(--outcome-bg)"></span> Outcome / end-state</div>
+  <div class="legend-row"><span class="box dbl" style="border-color:var(--supply)"></span> Migration-resistance ally (double border)</div>
+  <div class="legend-row"><span style="width:15px;height:15px;border-radius:50%;background:#111;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">&#63743;</span> Also serves Apple enterprise</div>
+
+  <div class="panel-note">
+    Edges stay hidden until you <b>hover</b> or <b>pin</b> a node — or click a type above to see that linkage map-wide. Every edge carries exactly one type from this controlled vocabulary (Adner ecosystem-as-structure). <b>DEPENDS-ON</b> exposes Oracle-captive partners; <b>MIGRATES-TO</b> traces the forced-cloud pressure; <b>ON-PREM HOLDOUTS</b> and <b>PARTNER-LED DISPLACEMENT</b> mark where that pressure creates openings.
+  </div>
+</div>
+
+<div id="zoom">
+  <button class="btn" id="zin">+</button>
+  <button class="btn" id="zout">&minus;</button>
+</div>
+
+<div id="hint">
+  <b>Hover a node</b> to reveal its linkages · <b>click a node</b> to pin them · <b>drag canvas</b> to pan · <b>scroll</b> to zoom · <b>drag a node</b> to move it · <b>double-click</b> to edit · panel isolates one linkage type map-wide.
+</div>
+
+<div id="editor">
+  <label>Title</label><input id="ed-title" maxlength="42">
+  <label>Caption</label><input id="ed-cap" maxlength="70">
+  <label>Type</label>
+  <select id="ed-kind">
+    <option value="supply">Supply / infra</option>
+    <option value="demand">Demand / channel</option>
+    <option value="core">Platform core</option>
+    <option value="risk">Pain / bottleneck</option>
+    <option value="outcome">Outcome pill</option>
+  </select>
+  <div class="row">
+    <button class="btn accent" id="ed-save">Save</button>
+    <button class="btn" id="ed-del">Delete</button>
+    <button class="btn" id="ed-close">Close</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   RELATIONSHIP TAXONOMY  (Ron Adner ecosystem-as-structure)
+   Every edge references exactly one of these keys.
+   ============================================================ */
+const REL = {
+  governs:   {name:"GOVERNS / CONTROLS", color:"#7a4fb0", desc:"Platform-owner leverage: licensing, support, certification, roadmap"},
+  supplies:  {name:"SUPPLIES / COMPONENT", color:"#2e8b6f", desc:"Upstream input flows into the platform"},
+  channel:   {name:"DISTRIBUTES / CHANNEL", color:"#c98a2b", desc:"Sells or resells the platform to customers"},
+  implements:{name:"IMPLEMENTS / SERVICES", color:"#3d7fb8", desc:"Deploys, migrates, tunes, operates"},
+  integrates:{name:"INTEGRATES-WITH", color:"#4aa3a3", desc:"Technical interoperability / attach"},
+  complements:{name:"COMPLEMENTS", color:"#8bb04f", desc:"Co-created value, non-technical"},
+  monetizes: {name:"MONETIZES", color:"#c0873f", desc:"Money flow / recurring revenue capture"},
+  migrates:  {name:"MIGRATES-TO", color:"#d9772e", desc:"Workload/customer movement under Oracle cloud pressure"},
+  competes:  {name:"COMPETES / SUBSTITUTES", color:"#c0473f", desc:"Displacement path away from Exadata"},
+  depends:   {name:"DEPENDS-ON", color:"#9c6b3f", desc:"Asymmetric dependency (exposes Oracle-captive partners)"}
+};
+
+/* ============================================================
+   CLUSTERS  — the dashed containers. Left→right narrative.
+   x,y,w,h in world coords. side drives border tint.
+   ============================================================ */
+const CLUSTERS = [
+  // col 1 — far-left: capital & components
+  {id:"cap",   title:"Capital & Silicon Supply", side:"supply", x:40,  y:110, w:250},
+  {id:"hw",    title:"Hardware & Component Lineage", side:"supply", x:40, y:500, w:250},
+
+  // col 2 — Oracle's software moat + heritage
+  {id:"stack", title:"Oracle Software Stack (the moat)", side:"supply", x:330, y:110, w:270},
+  {id:"engsys",title:"Engineered-System Heritage", side:"supply", x:330, y:620, w:270},
+
+  // col 3 — control points / PLATFORM CORE / pressure
+  {id:"control",title:"Oracle Control Points", side:"supply", x:650, y:58,  w:440},
+  {id:"core",  title:"Oracle Exadata Platform Core", side:"core", x:650, y:330, w:440},
+  {id:"pressure",title:"Lock-in & Forced-Cloud Pressure", side:"risk", x:650, y:610, w:440},
+
+  // col 4 — commercial motion + partners
+  {id:"sales", title:"Sales & Commercial Motions", side:"demand", x:1140, y:58,  w:320},
+  {id:"gsi",   title:"Global System Integrators", side:"demand", x:1140, y:330, w:320},
+  {id:"resell",title:"Resellers · Channel · Public Sector", side:"demand", x:1140, y:662, w:320},
+
+  // col 5 — operations + allies + tech attach
+  {id:"msp",   title:"Managed Services & Operations", side:"demand", x:1500, y:58,  w:320},
+  {id:"allies",title:"Migration-Resistance Allies", side:"supply", x:1500, y:330, w:320},
+  {id:"tech",  title:"Technology Integrations (attach)", side:"demand", x:1500, y:602, w:320},
+
+  // col 6 — customers / competitors / regions
+  {id:"cust",  title:"Customer Segments & Accounts", side:"demand", x:1860, y:58,  w:320},
+  {id:"compete",title:"Competitive & Substitution Ecosystem", side:"risk", x:1860, y:390, w:320},
+  {id:"region",title:"Regional GTM Divergence", side:"demand", x:1860, y:722, w:320},
+
+  // col 7 — outcome pills
+  {id:"outcome",title:"Ecosystem End-States", side:"demand", x:2220, y:300, w:260},
+];
+
+/* ============================================================
+   NODES.  kind: supply|demand|core|risk|outcome
+   ally:true → double border (migration-resistance ally)
+   apple:true → Apple-enterprise overlap badge
+   dep: short dependency profile (shown in caption where useful)
+   ============================================================ */
+const NODES = [
+  /* ---------- CAPITAL & SILICON ---------- */
+  {id:"vc",     cl:"cap", kind:"supply", t:"Capital Markets", c:"Funds Oracle R&D + buybacks"},
+  {id:"intel",  cl:"cap", kind:"supply", t:"Intel Xeon", c:"CPU for most X-gen DB servers"},
+  {id:"amd",    cl:"cap", kind:"supply", t:"AMD EPYC", c:"Newer storage-cell / DB compute"},
+  {id:"nvidia", cl:"cap", kind:"supply", t:"NVIDIA / Mellanox", c:"RDMA fabric lineage (InfiniBand→RoCE)"},
+  {id:"mem",    cl:"cap", kind:"supply", t:"DRAM / NVMe Suppliers", c:"Samsung · SK Hynix · Micron (commodity)"},
+
+  /* ---------- HARDWARE LINEAGE ---------- */
+  {id:"sun",    cl:"hw", kind:"supply", t:"Sun Microsystems DNA", c:"2010 acq → vertical HW control"},
+  {id:"roce",   cl:"hw", kind:"supply", t:"RoCE Fabric", c:"100Gb low-latency interconnect"},
+  {id:"flash",  cl:"hw", kind:"supply", t:"PCIe Flash / PMEM", c:"Storage-cell smart tier"},
+  {id:"coloc",  cl:"hw", kind:"supply", t:"Colocation (Equinix, DRT)", c:"Hosts C@C / OCI edge racks"},
+  {id:"ocidc",  cl:"hw", kind:"supply", t:"OCI Data Centers", c:"Oracle-owned regions + dedicated"},
+
+  /* ---------- ORACLE SOFTWARE STACK ---------- */
+  {id:"db",     cl:"stack", kind:"supply", t:"Oracle Database", c:"The gravity well — 23ai current"},
+  {id:"rac",    cl:"stack", kind:"supply", t:"Real App Clusters", c:"Scale-out HA; licensed premium"},
+  {id:"asm",    cl:"stack", kind:"supply", t:"ASM + Smart Scan", c:"Storage offload — Exadata-only"},
+  {id:"hcc",    cl:"stack", kind:"supply", t:"Hybrid Columnar Compress", c:"Exadata-locked compression"},
+  {id:"dg",     cl:"stack", kind:"supply", t:"Data Guard / GoldenGate", c:"Replication + DR moat"},
+  {id:"adb",    cl:"stack", kind:"supply", t:"Autonomous Database", c:"Self-driving DB, Exadata-hosted"},
+  {id:"oem",    cl:"stack", kind:"supply", t:"Enterprise Manager", c:"Fleet mgmt + monitoring"},
+
+  /* ---------- ENGINEERED HERITAGE ---------- */
+  {id:"v1",     cl:"engsys", kind:"supply", t:"HP DB Machine (2008)", c:"V1 origin — Smart Scan debut"},
+  {id:"exalytics",cl:"engsys",kind:"supply",t:"Exadata X-series", c:"V2→X11M generational cadence"},
+  {id:"zdlra",  cl:"engsys", kind:"supply", t:"ZDLRA / ZFS Backup", c:"Recovery-appliance attach"},
+  {id:"exascale",cl:"engsys",kind:"supply", t:"Exascale", c:"Elastic block-store re-architecture"},
+
+  /* ---------- ORACLE CONTROL POINTS ---------- */
+  {id:"license",cl:"control", kind:"supply", t:"Licensing Regime", c:"Core-factor · NUP · RAC premium"},
+  {id:"support",cl:"control", kind:"supply", t:"22% Support Fee", c:"Annual, compounding, repriced"},
+  {id:"audit",  cl:"control", kind:"supply", t:"GLAS / LMS Audits", c:"Compliance pressure as sales lever"},
+  {id:"roadmap",cl:"control", kind:"supply", t:"Roadmap & Certification", c:"Only Oracle certifies Exadata"},
+  {id:"rewards",cl:"control", kind:"supply", t:"Support Rewards", c:"25–33% offset — but only on OCI"},
+
+  /* ---------- PLATFORM CORE (deployment models) ---------- */
+  {id:"dbm",    cl:"core", kind:"core", t:"Exadata Database Machine", c:"On-prem CapEx · customer-run"},
+  {id:"c@c",    cl:"core", kind:"core", t:"Exadata Cloud@Customer", c:"On-prem, Oracle-managed OpEx"},
+  {id:"exacs",  cl:"core", kind:"core", t:"Exadata DB Service (OCI)", c:"Multi-tenant cloud consumption"},
+  {id:"exadi",  cl:"core", kind:"core", t:"Dedicated Infrastructure", c:"Single-tenant OCI Exadata"},
+  {id:"adbex",  cl:"core", kind:"core", t:"Autonomous on Exadata", c:"Fully-managed self-driving tier"},
+  {id:"multi",  cl:"core", kind:"core", t:"Database@Hyperscalers", c:"Exadata racks in Azure · GCP · AWS"},
+
+  /* ---------- LOCK-IN & PRESSURE ---------- */
+  {id:"eos",    cl:"pressure", kind:"risk", t:"5-yr Hardware EOS Cliff", c:"Refresh-or-migrate forcing point"},
+  {id:"pricehike",cl:"pressure",kind:"risk",t:"Support Price Escalation", c:"~4–8%/yr, drives cloud math"},
+  {id:"byol",   cl:"pressure", kind:"risk", t:"BYOL Funnel", c:"License mobility → OCI only"},
+  {id:"ula",    cl:"pressure", kind:"risk", t:"ULA / PULA Renewal", c:"Certification-exit trap"},
+  {id:"lift",   cl:"pressure", kind:"risk", t:"Cloud Lift + Incentives", c:"Free migration to pull off-prem"},
+
+  /* ---------- SALES MOTIONS ---------- */
+  {id:"direct", cl:"sales", kind:"demand", t:"Direct Enterprise Sales", c:"Oracle owns the account"},
+  {id:"cloudsales",cl:"sales",kind:"demand",t:"OCI Cloud Sales", c:"Universal Credits consumption"},
+  {id:"consol", cl:"sales", kind:"demand", t:"DB Consolidation Play", c:"Sprawl → engineered system"},
+  {id:"missioncrit",cl:"sales",kind:"demand",t:"Mission-Critical Pitch", c:"Resilience / RAC / DR proof"},
+  {id:"displace",cl:"sales",kind:"demand", t:"Competitor Displacement", c:"Rip mainframe / other DB"},
+
+  /* ---------- GSIs ---------- */
+  {id:"accenture",cl:"gsi",kind:"demand",t:"Accenture", c:"Diversified · Oracle BG + Apple practice", apple:true},
+  {id:"deloitte",cl:"gsi",kind:"demand",t:"Deloitte", c:"Diversified · apps-led Oracle", apple:true},
+  {id:"ibm",    cl:"gsi", kind:"demand", t:"IBM Consulting", c:"Diversified · also Db2 rival", apple:true},
+  {id:"kyndryl",cl:"gsi", kind:"demand", t:"Kyndryl", c:"Infra-ops heavy · Oracle managed", apple:true},
+  {id:"infy",   cl:"gsi", kind:"demand", t:"Infosys", c:"Offshore Oracle migration factory"},
+  {id:"tcs",    cl:"gsi", kind:"demand", t:"TCS", c:"Largest Oracle labor pool"},
+  {id:"capg",   cl:"gsi", kind:"demand", t:"Capgemini", c:"EMEA Oracle transformation"},
+  {id:"version1",cl:"gsi",kind:"demand",t:"Version 1", c:"UK/IRE · Oracle-centric, ally-ish", ally:true},
+
+  /* ---------- RESELLERS / CHANNEL ---------- */
+  {id:"mythics",cl:"resell",kind:"demand",t:"Mythics", c:"US public-sector Oracle powerhouse"},
+  {id:"carahsoft",cl:"resell",kind:"demand",t:"Carahsoft", c:"Gov distribution · GSA vehicles"},
+  {id:"cdw",    cl:"resell", kind:"demand", t:"CDW", c:"Sells Exadata + Apple · diversified", apple:true},
+  {id:"shi",    cl:"resell", kind:"demand", t:"SHI", c:"Exadata + Apple enterprise VAR", apple:true},
+  {id:"insight",cl:"resell", kind:"demand", t:"Insight Ent.", c:"Exadata + Apple VAR · NA/EMEA", apple:true},
+  {id:"computacenter",cl:"resell",kind:"demand",t:"Computacenter", c:"EMEA Exadata + Apple channel", apple:true},
+  {id:"softchoice",cl:"resell",kind:"demand",t:"Softchoice", c:"Oracle + Apple channel · CA/US", apple:true},
+  {id:"compugen",cl:"resell",kind:"demand",t:"Compugen", c:"Oracle + Apple channel · Canada", apple:true},
+  {id:"fujitsu",cl:"resell", kind:"demand", t:"Fujitsu", c:"Japan · OEM-like Oracle tie"},
+  {id:"arrow",  cl:"resell", kind:"demand", t:"Arrow / TD SYNNEX", c:"Distribution backbone"},
+
+  /* ---------- MSPs ---------- */
+  {id:"dataintensity",cl:"msp",kind:"demand",t:"Data Intensity", c:"Oracle-captive · apps + Exadata MS"},
+  {id:"centroid",cl:"msp",kind:"demand",t:"Centroid", c:"Oracle-captive · OCI + EBS ops"},
+  {id:"viscosity",cl:"msp",kind:"demand",t:"Viscosity NA", c:"Oracle-captive · DB engineering"},
+  {id:"pythian",cl:"msp", kind:"demand", t:"Pythian", c:"Diversified · multi-DB remote DBA"},
+  {id:"dsp",    cl:"msp",  kind:"demand", t:"DSP-Explorer", c:"UK · Oracle managed + cloud"},
+  {id:"datavail",cl:"msp", kind:"demand", t:"Datavail", c:"Diversified · offshore DBA scale"},
+
+  /* ---------- MIGRATION-RESISTANCE ALLIES ---------- */
+  {id:"rimini", cl:"allies",kind:"supply",t:"Rimini Street", c:"3rd-party support — off Oracle maint.", ally:true},
+  {id:"spinnaker",cl:"allies",kind:"supply",t:"Spinnaker Support", c:"3rd-party support alternative", ally:true},
+  {id:"palisade",cl:"allies",kind:"supply",t:"Palisade Compliance", c:"Anti-audit license advisory", ally:true},
+  {id:"origina",cl:"allies",kind:"supply",t:"Origina / Support Rev.", c:"Independent support (EMEA)", ally:true},
+  {id:"tpm",    cl:"allies", kind:"supply", t:"Park Place / CentricsIT", c:"3rd-party HW maintenance", ally:true},
+
+  /* ---------- TECH INTEGRATIONS ---------- */
+  {id:"backup", cl:"tech", kind:"demand", t:"Backup (Commvault, Rubrik)", c:"Cohesity · Dell PowerProtect"},
+  {id:"observe",cl:"tech", kind:"demand", t:"Observability", c:"Dynatrace · Datadog · Quest"},
+  {id:"etl",    cl:"tech", kind:"demand", t:"Data Integration", c:"Informatica · Qlik · Striim"},
+  {id:"bi",     cl:"tech", kind:"demand", t:"Analytics / BI", c:"OAC · Power BI · Tableau"},
+  {id:"security",cl:"tech",kind:"demand", t:"Security / IAM", c:"CyberArk · Guardium · Data Safe"},
+  {id:"apps",   cl:"tech", kind:"demand", t:"Oracle App Stacks", c:"EBS · PeopleSoft · JDE · Fusion"},
+  {id:"isv",    cl:"tech", kind:"demand", t:"ISV Workloads", c:"Temenos · FIS · Amdocs on DB"},
+  {id:"sap",    cl:"tech", kind:"demand", t:"SAP on Oracle DB", c:"Shrinking — HANA pulls away"},
+
+  /* ---------- CUSTOMERS ---------- */
+  {id:"banks",  cl:"cust", kind:"demand", t:"Financial Services", c:"Core banking · low-latency OLTP"},
+  {id:"telco",  cl:"cust", kind:"demand", t:"Telecom", c:"AT&T · Vodafone · billing systems"},
+  {id:"gov",    cl:"cust", kind:"demand", t:"Government / Defense", c:"Sovereignty-bound · via Mythics"},
+  {id:"retail", cl:"cust", kind:"demand", t:"Retail", c:"Walgreens · 7-Eleven · ERP core"},
+  {id:"health", cl:"cust", kind:"demand", t:"Healthcare", c:"Cerner (Oracle-owned) · payers"},
+  {id:"util",   cl:"cust", kind:"demand", t:"Utilities / Manufacturing", c:"Samsung SDS · Hyundai"},
+  {id:"f100",   cl:"cust", kind:"demand", t:"Fortune 100 Core", c:"Oracle cites broad penetration"},
+
+  /* ---------- COMPETITORS ---------- */
+  {id:"postgres",cl:"compete",kind:"risk",t:"PostgreSQL / EDB", c:"#1 Oracle-exit path"},
+  {id:"aws",    cl:"compete", kind:"risk", t:"AWS (RDS, Aurora)", c:"DMS-led migration pull"},
+  {id:"azure",  cl:"compete", kind:"risk", t:"Azure SQL / Postgres", c:"Partner AND rival paradox"},
+  {id:"snowflake",cl:"compete",kind:"risk",t:"Snowflake / Databricks", c:"Analytics offload from Exadata"},
+  {id:"heatwave",cl:"compete",kind:"risk",t:"MySQL HeatWave", c:"Oracle's own cannibalizer"},
+  {id:"onprem", cl:"compete", kind:"risk", t:"Dell / HPE / Pure", c:"Commodity infra + open DB"},
+
+  /* ---------- REGIONAL ---------- */
+  {id:"na",     cl:"region", kind:"demand", t:"North America", c:"~45% base · direct + Mythics gov"},
+  {id:"emea",   cl:"region", kind:"demand", t:"EMEA", c:"Sovereignty · G-Cloud · SI-led"},
+  {id:"japan",  cl:"region", kind:"demand", t:"Japan", c:"Fujitsu co-sell · high loyalty"},
+  {id:"apac",   cl:"region", kind:"demand", t:"APAC ex-Japan", c:"Telco-heavy · price-sensitive"},
+  {id:"mena",   cl:"region", kind:"demand", t:"Middle East", c:"Sovereign cloud · gov mega-deals"},
+
+  /* ---------- OUTCOMES ---------- */
+  {id:"o_lockcloud",cl:"outcome",kind:"outcome",t:"LOCKED-IN CLOUD MIGRATION", c:"Captured to OCI consumption"},
+  {id:"o_holdout",cl:"outcome",kind:"outcome",t:"ON-PREM HOLDOUTS", c:"Sovereignty / latency / cost refusers"},
+  {id:"o_partner",cl:"outcome",kind:"outcome",t:"PARTNER-LED DISPLACEMENT", c:"Diversified partners open to alt"},
+];
+
+/* ============================================================
+   EDGES — every edge carries exactly ONE taxonomy type + a
+   short specific descriptor. Nothing ad hoc.
+   ============================================================ */
+const EDGES = [
+  // supply into the machine
+  {f:"intel",t:"dbm",r:"supplies",l:"Xeon DB servers"},
+  {f:"amd",t:"dbm",r:"supplies",l:"EPYC gen shift"},
+  {f:"nvidia",t:"roce",r:"supplies",l:"RDMA silicon"},
+  {f:"mem",t:"flash",r:"supplies",l:"NAND / DRAM"},
+  {f:"vc",t:"ocidc",r:"supplies",l:"capex for regions"},
+  {f:"sun",t:"dbm",r:"supplies",l:"vertical HW DNA"},
+  {f:"roce",t:"dbm",r:"supplies",l:"100Gb fabric"},
+  {f:"flash",t:"dbm",r:"supplies",l:"smart storage tier"},
+  {f:"coloc",t:"c@c",r:"complements",l:"hosts racks"},
+  {f:"ocidc",t:"exacs",r:"supplies",l:"region capacity"},
+  {f:"ocidc",t:"multi",r:"supplies",l:"child regions"},
+  // software moat
+  {f:"db",t:"dbm",r:"supplies",l:"core engine"},
+  {f:"rac",t:"db",r:"complements",l:"scale-out HA"},
+  {f:"asm",t:"dbm",r:"supplies",l:"Smart Scan offload"},
+  {f:"hcc",t:"dbm",r:"supplies",l:"Exadata-only compress"},
+  {f:"dg",t:"db",r:"complements",l:"DR / replication"},
+  {f:"adb",t:"adbex",r:"supplies",l:"autonomous layer"},
+  {f:"oem",t:"dbm",r:"integrates",l:"fleet management"},
+  // heritage
+  {f:"v1",t:"exalytics",r:"supplies",l:"2008 lineage"},
+  {f:"exalytics",t:"dbm",r:"supplies",l:"current X-gen"},
+  {f:"zdlra",t:"dbm",r:"integrates",l:"backup appliance"},
+  {f:"exascale",t:"exacs",r:"supplies",l:"elastic block arch"},
+  // control points
+  {f:"license",t:"db",r:"governs",l:"core-factor pricing"},
+  {f:"license",t:"rac",r:"governs",l:"RAC premium"},
+  {f:"support",t:"dbm",r:"monetizes",l:"22% annuity"},
+  {f:"support",t:"pricehike",r:"monetizes",l:"compounding base"},
+  {f:"audit",t:"f100",r:"governs",l:"compliance leverage"},
+  {f:"audit",t:"ula",r:"governs",l:"cert-exit exposure"},
+  {f:"roadmap",t:"dbm",r:"governs",l:"sole certifier"},
+  {f:"rewards",t:"exacs",r:"migrates",l:"offset only on OCI"},
+  // pressure mechanics
+  {f:"eos",t:"c@c",r:"migrates",l:"refresh-or-migrate"},
+  {f:"pricehike",t:"exacs",r:"migrates",l:"cloud math tilts"},
+  {f:"pricehike",t:"rimini",r:"migrates",l:"escapees to 3rd-party"},
+  {f:"byol",t:"exacs",r:"migrates",l:"license mobility → OCI"},
+  {f:"ula",t:"o_lockcloud",r:"migrates",l:"renewal → cloud commit"},
+  {f:"lift",t:"exacs",r:"migrates",l:"free migration svc"},
+  // core → outcomes
+  {f:"exacs",t:"o_lockcloud",r:"migrates",l:"consumption capture"},
+  {f:"multi",t:"o_lockcloud",r:"migrates",l:"hyperscaler-side capture"},
+  {f:"dbm",t:"o_holdout",r:"complements",l:"the estate that stays"},
+  // sales motions
+  {f:"direct",t:"f100",r:"channel",l:"account ownership"},
+  {f:"cloudsales",t:"exacs",r:"channel",l:"universal credits"},
+  {f:"consol",t:"dbm",r:"channel",l:"sprawl → engineered"},
+  {f:"missioncrit",t:"banks",r:"channel",l:"RAC / DR proof"},
+  {f:"displace",t:"f100",r:"channel",l:"legacy rip-replace"},
+  // GSIs
+  {f:"accenture",t:"exacs",r:"implements",l:"migration factory"},
+  {f:"accenture",t:"o_lockcloud",r:"migrates",l:"cloud-first advisory"},
+  {f:"deloitte",t:"apps",r:"implements",l:"apps-led programs"},
+  {f:"ibm",t:"dbm",r:"implements",l:"Exadata practice"},
+  {f:"kyndryl",t:"dbm",r:"implements",l:"infra operations"},
+  {f:"infy",t:"exacs",r:"implements",l:"offshore migration"},
+  {f:"tcs",t:"apps",r:"implements",l:"apps labor pool"},
+  {f:"capg",t:"dbm",r:"implements",l:"EMEA transformation"},
+  {f:"version1",t:"dbm",r:"implements",l:"UK Oracle estates"},
+  {f:"version1",t:"o_partner",r:"complements",l:"diversified posture"},
+  // resellers / channel
+  {f:"mythics",t:"gov",r:"channel",l:"US public sector"},
+  {f:"mythics",t:"db",r:"depends",l:"Oracle-captive"},
+  {f:"carahsoft",t:"gov",r:"channel",l:"GSA vehicles"},
+  {f:"cdw",t:"dbm",r:"channel",l:"resale + services"},
+  {f:"cdw",t:"o_partner",r:"complements",l:"diversified channel"},
+  {f:"shi",t:"dbm",r:"channel",l:"enterprise VAR"},
+  {f:"insight",t:"dbm",r:"channel",l:"NA / EMEA VAR"},
+  {f:"computacenter",t:"emea",r:"channel",l:"EMEA estates"},
+  {f:"fujitsu",t:"japan",r:"channel",l:"co-sell / OEM-like"},
+  {f:"arrow",t:"cdw",r:"channel",l:"2-tier distribution"},
+  {f:"computacenter",t:"dbm",r:"channel",l:"EMEA Exadata estates"},
+  {f:"shi",t:"o_partner",r:"complements",l:"dual Oracle+Apple channel"},
+  {f:"insight",t:"o_partner",r:"complements",l:"dual-channel recruitable"},
+  {f:"computacenter",t:"o_partner",r:"complements",l:"dual Oracle+Apple channel"},
+  {f:"softchoice",t:"db",r:"channel",l:"Oracle + Apple resale"},
+  {f:"compugen",t:"db",r:"channel",l:"Oracle + Apple resale"},
+  {f:"softchoice",t:"o_partner",r:"complements",l:"dual-channel recruitable"},
+  {f:"compugen",t:"o_partner",r:"complements",l:"dual-channel recruitable"},
+  // MSPs
+  {f:"dataintensity",t:"dbm",r:"implements",l:"Exadata managed"},
+  {f:"dataintensity",t:"db",r:"depends",l:"Oracle-captive"},
+  {f:"centroid",t:"c@c",r:"implements",l:"C@C operations"},
+  {f:"centroid",t:"db",r:"depends",l:"Oracle-captive"},
+  {f:"viscosity",t:"rac",r:"implements",l:"deep DB engineering"},
+  {f:"pythian",t:"dbm",r:"implements",l:"multi-DB remote DBA"},
+  {f:"pythian",t:"o_partner",r:"complements",l:"recruitable"},
+  {f:"dsp",t:"dbm",r:"implements",l:"UK managed services"},
+  {f:"datavail",t:"db",r:"implements",l:"offshore DBA"},
+  // resistance allies
+  {f:"rimini",t:"support",r:"competes",l:"replaces maintenance"},
+  {f:"spinnaker",t:"support",r:"competes",l:"support substitute"},
+  {f:"palisade",t:"audit",r:"competes",l:"audit defense"},
+  {f:"origina",t:"support",r:"competes",l:"EMEA independent"},
+  {f:"tpm",t:"eos",r:"competes",l:"extends HW life"},
+  {f:"rimini",t:"o_holdout",r:"complements",l:"enables staying"},
+  {f:"tpm",t:"o_holdout",r:"complements",l:"life extension"},
+  // tech attach
+  {f:"backup",t:"dbm",r:"integrates",l:"RMAN attach"},
+  {f:"observe",t:"dbm",r:"integrates",l:"perf telemetry"},
+  {f:"etl",t:"db",r:"integrates",l:"CDC / replication"},
+  {f:"bi",t:"db",r:"integrates",l:"query attach"},
+  {f:"security",t:"db",r:"integrates",l:"IAM / audit"},
+  {f:"apps",t:"db",r:"depends",l:"EBS / PSFT gravity"},
+  {f:"isv",t:"db",r:"depends",l:"cores committed"},
+  {f:"sap",t:"db",r:"depends",l:"shrinking estate"},
+  // customers
+  {f:"banks",t:"db",r:"depends",l:"core banking"},
+  {f:"banks",t:"o_holdout",r:"migrates",l:"latency + reg"},
+  {f:"telco",t:"o_lockcloud",r:"migrates",l:"mega-deal captures"},
+  {f:"gov",t:"o_holdout",r:"migrates",l:"sovereignty-bound"},
+  {f:"retail",t:"o_lockcloud",r:"migrates",l:"OpEx shift"},
+  {f:"health",t:"dbm",r:"depends",l:"Cerner Millennium"},
+  {f:"util",t:"dbm",r:"depends",l:"OT-adjacent cores"},
+  {f:"f100",t:"support",r:"monetizes",l:"maintenance annuity"},
+  // competitors / substitutes
+  {f:"postgres",t:"db",r:"competes",l:"exit path #1"},
+  {f:"aws",t:"exacs",r:"competes",l:"DMS migration pull"},
+  {f:"azure",t:"multi",r:"competes",l:"partner-rival paradox"},
+  {f:"snowflake",t:"db",r:"competes",l:"analytics offload"},
+  {f:"heatwave",t:"db",r:"competes",l:"internal cannibal"},
+  {f:"onprem",t:"dbm",r:"competes",l:"commodity + open DB"},
+  // regions
+  {f:"na",t:"o_lockcloud",r:"migrates",l:"cloud-first NA"},
+  {f:"emea",t:"o_holdout",r:"migrates",l:"GDPR / sovereignty"},
+  {f:"japan",t:"dbm",r:"depends",l:"on-prem loyalty"},
+  {f:"apac",t:"exacs",r:"migrates",l:"cloud adoption"},
+  {f:"mena",t:"c@c",r:"complements",l:"sovereign demand"},
+];
+
+/* ============================================================
+   ENGINE — layout, render, pan/zoom, drag, filter, edit
+   ============================================================ */
+const stage=document.getElementById("stage"),world=document.getElementById("world"),
+      svg=document.getElementById("edges");
+const COLW=142, ROWH=60, PILLROW=92;
+let view={x:0,y:0,k:1};
+let activeRels=new Set(Object.keys(REL));
+let hoverId=null,pinId=null;
+const nodeEls={}, edgeObjs=[];
+
+/* ---- layout: auto-grid nodes inside their clusters ---- */
+function layout(){
+  CLUSTERS.forEach(cl=>{
+    const kids=NODES.filter(n=>n.cl===cl.id);
+    const isPill=cl.id==="outcome";
+    const cols=isPill?1:Math.max(1,Math.floor((cl.w-28)/COLW));
+    const rows=Math.ceil(kids.length/cols)||1;
+    const rowH=isPill?PILLROW:ROWH;
+    cl.h=42+rows*rowH;
+    cl.cols=cols;
+    const pad=(cl.w-28-cols*COLW)/2;
+    kids.forEach((n,i)=>{
+      if(n.x!==undefined)return; // keep user-dragged positions
+      const c=i%cols,r=Math.floor(i/cols);
+      if(isPill){ n.x=cl.x+18; n.w=cl.w-36; n.y=cl.y+30+r*rowH; }
+      else if(cols===1){ n.x=cl.x+14; n.w=cl.w-28; n.y=cl.y+30+r*rowH; }
+      else { n.x=cl.x+14+Math.max(0,pad)+c*COLW; n.w=COLW-10; n.y=cl.y+30+r*rowH; }
+    });
+  });
+  // orphan (user-added) nodes keep their own x/y
+}
+
+
+/* ---- reflow: size rows from measured node heights, restack columns ---- */
+function reflow(){
+  const GAPY=10, CGAP=36;
+  // pass 1: relative row offsets + true cluster heights
+  CLUSTERS.forEach(cl=>{
+    const kids=NODES.filter(n=>n.cl===cl.id);
+    const cols=cl.cols||1;
+    let y=30;
+    for(let i=0;i<kids.length;i+=cols){
+      const row=kids.slice(i,i+cols);
+      let rh=0;
+      row.forEach(k=>rh=Math.max(rh,nodeEls[k.id].offsetHeight));
+      row.forEach(k=>k._rel=y);
+      y+=rh+GAPY;
+    }
+    cl.h=kids.length?y-GAPY+14:80;
+  });
+  // pass 2: push clusters in the same column apart if they now collide
+  const byCol={};
+  CLUSTERS.forEach(cl=>{(byCol[cl.x]=byCol[cl.x]||[]).push(cl);});
+  Object.values(byCol).forEach(col=>{
+    col.sort((a,b)=>a.y-b.y);
+    for(let i=1;i<col.length;i++){
+      col[i].y=Math.max(col[i].y,col[i-1].y+col[i-1].h+CGAP);
+    }
+  });
+  // pass 3: write final geometry to the DOM
+  document.querySelectorAll(".cluster").forEach((el,i)=>{
+    const cl=CLUSTERS[i];
+    el.style.top=cl.y+"px";el.style.height=cl.h+"px";
+  });
+  NODES.forEach(n=>{
+    if(n._rel!==undefined){
+      const cl=CLUSTERS.find(c=>c.id===n.cl);
+      n.y=cl.y+n._rel;delete n._rel;
+    }
+    nodeEls[n.id].style.top=n.y+"px";
+  });
+}
+
+/* ---- render clusters + nodes ---- */
+function renderStatics(){
+  CLUSTERS.forEach(cl=>{
+    const d=document.createElement("div");
+    d.className="cluster "+cl.side;
+    d.style.cssText=`left:${cl.x}px;top:${cl.y}px;width:${cl.w}px;height:${cl.h}px`;
+    d.innerHTML=`<span class="cl-title">${cl.title}</span>`;
+    world.appendChild(d);
+  });
+  NODES.forEach(n=>renderNode(n));
+}
+function renderNode(n){
+  const d=document.createElement("div");
+  d.className="node "+n.kind+(n.ally?" ally":"");
+  d.dataset.id=n.id;
+  d.style.cssText=`left:${n.x}px;top:${n.y}px;`+(n.w?`width:${n.w}px;max-width:none;`:"");
+  d.innerHTML=`<div class="t">${n.t}</div><div class="c">${n.c||""}</div>`+
+    (n.apple?`<div class="apple" title="Also serves Apple enterprise">&#63743;</div>`:"");
+  world.appendChild(d);
+  nodeEls[n.id]=d;
+  attachNodeDrag(d,n);
+  d.addEventListener("dblclick",e=>{e.stopPropagation();openEditor(n,e);});
+  d.addEventListener("mouseenter",()=>{hoverId=n.id;updateVis();});
+  d.addEventListener("mouseleave",()=>{if(hoverId===n.id){hoverId=null;updateVis();}});
+}
+
+/* ---- edges ---- */
+function center(n){
+  const el=nodeEls[n.id];
+  return {x:n.x+el.offsetWidth/2, y:n.y+el.offsetHeight/2};
+}
+function renderEdges(){
+  EDGES.forEach(e=>{
+    const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+    p.classList.add("edge");
+    p.style.stroke=REL[e.r].color;
+    svg.appendChild(p);
+    const lb=document.createElement("div");
+    lb.className="elabel";
+    lb.style.color=REL[e.r].color;
+    lb.textContent=e.r.toUpperCase()+" · "+e.l;
+    world.appendChild(lb);
+    edgeObjs.push({e,p,lb});
+  });
+  drawEdges();
+}
+function drawEdges(){
+  edgeObjs.forEach(o=>{
+    const a=NODES.find(n=>n.id===o.e.f),b=NODES.find(n=>n.id===o.e.t);
+    if(!a||!b){o.p.style.display="none";o.lb.style.display="none";return;}
+    const s=center(a),t=center(b),mx=(s.x+t.x)/2;
+    o.p.setAttribute("d",`M ${s.x} ${s.y} C ${mx} ${s.y}, ${mx} ${t.y}, ${t.x} ${t.y}`);
+    o.lb.style.left=(mx - o.lb.offsetWidth/2)+"px";
+    o.lb.style.top=((s.y+t.y)/2 - 14)+"px";
+  });
+}
+
+/* ---- unified visibility: hover / pin / rel-filter ---- */
+function updateVis(){
+  const total=Object.keys(REL).length;
+  const none=activeRels.size===0;
+  const filtering=!none&&activeRels.size<total;
+  const focus=new Set();
+  if(pinId)focus.add(pinId);
+  if(hoverId)focus.add(hoverId);
+  const lit=new Set();
+  edgeObjs.forEach(o=>{
+    const relOK=!none&&activeRels.has(o.e.r);
+    const touches=focus.size>0&&(focus.has(o.e.f)||focus.has(o.e.t));
+    let mode="";
+    if(relOK&&touches)mode="show";
+    else if(relOK&&filtering&&focus.size===0)mode="faint";
+    o.p.classList.toggle("show",mode==="show");
+    o.p.classList.toggle("faint",mode==="faint");
+    o.lb.classList.toggle("show",mode==="show"||(mode==="faint"&&view.k>=0.55));
+    if(mode){lit.add(o.e.f);lit.add(o.e.t);}
+  });
+  NODES.forEach(n=>{
+    const el=nodeEls[n.id];
+    el.classList.remove("dimmed","fade");
+    if(none){el.classList.add("dimmed");}
+    else if(focus.size>0){if(!lit.has(n.id)&&!focus.has(n.id))el.classList.add("fade");}
+    else if(filtering){if(!lit.has(n.id))el.classList.add("dimmed");}
+  });
+  document.querySelectorAll(".rel").forEach(r=>{
+    r.classList.toggle("off",!activeRels.has(r.dataset.key));
+  });
+}
+function buildRelPanel(){
+  const box=document.getElementById("relList");
+  Object.entries(REL).forEach(([k,v])=>{
+    const d=document.createElement("div");
+    d.className="rel";d.dataset.key=k;
+    d.innerHTML=`<span class="sw" style="border-color:${v.color}"></span>
+      <span class="txt"><span class="nm">${v.name}</span><span class="ds">${v.desc}</span></span>`;
+    d.onclick=()=>{
+      const all=Object.keys(REL).length;
+      if(activeRels.size===all){activeRels=new Set([k]);}
+      else if(activeRels.has(k)){activeRels.delete(k);}
+      else activeRels.add(k);
+      if(activeRels.size===0)activeRels=new Set(Object.keys(REL));
+      updateVis();
+    };
+    box.appendChild(d);
+  });
+  document.getElementById("allOn").onclick=()=>{activeRels=new Set(Object.keys(REL));updateVis();};
+  document.getElementById("allOff").onclick=()=>{activeRels=new Set();updateVis();};
+}
+
+/* ---- pan / zoom ---- */
+let lastLblZoom=null;
+function applyView(){
+  world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`;
+  const ok=view.k>=0.55;
+  if(ok!==lastLblZoom){lastLblZoom=ok;updateVis();}
+}
+let panning=false,px=0,py=0;
+let downX=0,downY=0;
+stage.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".node")||e.target.closest("#panel"))return;
+  panning=true;px=e.clientX;py=e.clientY;downX=e.clientX;downY=e.clientY;
+  stage.classList.add("panning");
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener("pointermove",e=>{
+  if(!panning)return;
+  view.x+=e.clientX-px;view.y+=e.clientY-py;px=e.clientX;py=e.clientY;applyView();
+});
+stage.addEventListener("pointerup",e=>{
+  if(panning&&pinId&&Math.hypot(e.clientX-downX,e.clientY-downY)<4){pinId=null;updateVis();}
+  panning=false;stage.classList.remove("panning");
+});
+stage.addEventListener("wheel",e=>{
+  e.preventDefault();
+  const f=e.deltaY<0?1.12:1/1.12;
+  const k2=Math.min(2.5,Math.max(0.15,view.k*f));
+  const r=f===0?1:k2/view.k;
+  view.x=e.clientX-(e.clientX-view.x)*r;
+  view.y=e.clientY-(e.clientY-view.y)*r;
+  view.k=k2;applyView();
+},{passive:false});
+function zoomBy(f){
+  const cx=innerWidth/2,cy=innerHeight/2;
+  const k2=Math.min(2.5,Math.max(0.15,view.k*f)),r=k2/view.k;
+  view.x=cx-(cx-view.x)*r;view.y=cy-(cy-view.y)*r;view.k=k2;applyView();
+}
+document.getElementById("zin").onclick=()=>zoomBy(1.25);
+document.getElementById("zout").onclick=()=>zoomBy(1/1.25);
+function fitAll(){
+  let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+  CLUSTERS.forEach(c=>{x1=Math.min(x1,c.x);y1=Math.min(y1,c.y);x2=Math.max(x2,c.x+c.w);y2=Math.max(y2,c.y+c.h);});
+  const pad=60,availW=innerWidth-280,availH=innerHeight-120;
+  view.k=Math.min(availW/(x2-x1+pad*2),availH/(y2-y1+pad*2),1.4);
+  view.x=270+(availW-(x2-x1)*view.k)/2-(x1-pad)*view.k;
+  view.y=70+(availH-(y2-y1)*view.k)/2-(y1-pad)*view.k;
+  applyView();
+}
+document.getElementById("fitAll").onclick=fitAll;
+document.getElementById("resetView").onclick=fitAll;
+
+/* ---- node dragging ---- */
+function attachNodeDrag(el,n){
+  let sx,sy,ox,oy,drag=false;
+  el.addEventListener("pointerdown",e=>{
+    e.stopPropagation();drag=true;el.classList.add("dragging");
+    sx=e.clientX;sy=e.clientY;ox=n.x;oy=n.y;
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove",e=>{
+    if(!drag)return;
+    n.x=ox+(e.clientX-sx)/view.k;n.y=oy+(e.clientY-sy)/view.k;
+    el.style.left=n.x+"px";el.style.top=n.y+"px";drawEdges();
+  });
+  el.addEventListener("pointerup",e=>{
+    const moved=Math.hypot(e.clientX-sx,e.clientY-sy);
+    drag=false;el.classList.remove("dragging");
+    if(moved<4){pinId=(pinId===n.id)?null:n.id;updateVis();}
+  });
+}
+
+/* ---- inline editor ---- */
+const ed=document.getElementById("editor");let edTarget=null;
+function openEditor(n,e){
+  edTarget=n;
+  document.getElementById("ed-title").value=n.t;
+  document.getElementById("ed-cap").value=n.c||"";
+  document.getElementById("ed-kind").value=n.kind;
+  ed.style.display="block";
+  ed.style.left=Math.min(e.clientX+10,innerWidth-250)+"px";
+  ed.style.top=Math.min(e.clientY+10,innerHeight-220)+"px";
+}
+document.getElementById("ed-save").onclick=()=>{
+  if(!edTarget)return;
+  edTarget.t=document.getElementById("ed-title").value||"Untitled";
+  edTarget.c=document.getElementById("ed-cap").value;
+  edTarget.kind=document.getElementById("ed-kind").value;
+  const el=nodeEls[edTarget.id];
+  el.className="node "+edTarget.kind+(edTarget.ally?" ally":"");
+  el.querySelector(".t").textContent=edTarget.t;
+  el.querySelector(".c").textContent=edTarget.c;
+  ed.style.display="none";drawEdges();
+};
+document.getElementById("ed-del").onclick=()=>{
+  if(!edTarget)return;
+  const id=edTarget.id;
+  nodeEls[id].remove();delete nodeEls[id];
+  NODES.splice(NODES.findIndex(n=>n.id===id),1);
+  for(let i=edgeObjs.length-1;i>=0;i--){
+    if(edgeObjs[i].e.f===id||edgeObjs[i].e.t===id){
+      edgeObjs[i].p.remove();edgeObjs[i].lb.remove();
+      EDGES.splice(EDGES.indexOf(edgeObjs[i].e),1);edgeObjs.splice(i,1);
+    }
+  }
+  ed.style.display="none";
+};
+document.getElementById("ed-close").onclick=()=>ed.style.display="none";
+document.getElementById("addNode").onclick=()=>{
+  const n={id:"n"+Date.now(),cl:null,kind:"demand",
+    t:"New node",c:"double-click to edit",
+    x:(innerWidth/2-view.x)/view.k, y:(innerHeight/2-view.y)/view.k, w:150};
+  NODES.push(n);renderNode(n);
+  openEditor(n,{clientX:innerWidth/2,clientY:innerHeight/2});
+};
+
+/* ---- boot ---- */
+layout();renderStatics();reflow();renderEdges();buildRelPanel();fitAll();updateVis();
+const bb=(()=>{let x=0,y=0;CLUSTERS.forEach(c=>{x=Math.max(x,c.x+c.w);y=Math.max(y,c.y+c.h);});return{x,y}})();
+svg.setAttribute("width",bb.x+400);svg.setAttribute("height",bb.y+400);
+</script>
+</body>
+</html>
